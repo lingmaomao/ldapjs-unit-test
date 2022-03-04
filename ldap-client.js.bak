@@ -1,0 +1,85 @@
+import jwt from  "jsonwebtoken"
+import ldap from  "ldapjs"
+const jwtSecretKey = process.env.JWT_SECRET_KEY
+
+export function login(username, password) {
+  return new Promise((resolve, reject) => {
+    if (!username || !password) {
+        return reject({
+          error: "WRONG_CREDENTIAL",
+          message: `Both idsid and Password are required!`,
+        })
+  }
+
+  user_split = username.split("\\")
+  console.log("user_split:", user_split)
+
+  ldap_host = user_split[0]+'.corp.intel.com'
+  console.log(ldap_host)
+  ldap_base_search = 'OU=Workers,DC='+user_split[0]+',DC=corp,DC=intel,DC=com'
+  s = Server(host=ldap_host, port=ldap_port, use_ssl=False, get_info='ALL')
+  // 这个首先看看你的admin能不能正常connect
+  conn = Connection(s, user=ldap_admin_user, password=ldap_admin_password, check_names=True, lazy=False, raise_exceptions=False)
+  // 连上以后必须bind才能有值
+  conn.bind()
+  console.log(conn.bind())
+  console.log("name:")
+  //remove 'ccr\'
+  //username=username.replace("ccr\\","")
+
+    //create client
+    var client = ldap.createClient({
+      url: 'ldap://ccr.corp.intel.com',
+      port: '389'
+    })
+    const dn = username+'@ccr.corp.intel.com'
+    var SearchSuccess = false
+    //bind search account
+    client.bind(dn, password, function (err, res1) {
+      if (err) {
+      console.log('Error is:', err)
+      return reject({
+        error: "WRONG_CREDENTIAL",
+        message: `Incorrect username or password! (idsid, ccr\\maomaoli)`,
+      })
+    }
+    })
+
+    var opts = {
+      filter:'(&(memberOf=CN=FMTool-AD,OU=Managed,OU=Groups,DC=amr,DC=corp,DC=intel,DC=com)(sAMAccountName='+username+'))',
+      scope: 'sub',     
+      timeLimit: 500   
+    }
+
+    client.search('ou=Workers,dc=ccr,dc=corp,dc=intel,dc=com', opts, function (err, res2) {
+      res2.on('searchEntry', function (entry) {
+        SearchSuccess = true
+        var user = entry.object
+        const token = jwt.sign({ username: username, email: user.email, id: user.uidNumber}, jwtSecretKey, {
+          expiresIn: 3000, // 50min
+        })
+        resolve({
+          isSuccessful: true,
+          payload: {
+            token,
+          },
+        })
+      })
+
+      //search error
+      res2.on('error', function (err) {
+        SearchSuccess = false
+        client.unbind()
+        return reject({
+          error: "WRONG_CREDENTIAL",
+          message: `You are not a member of FMTool-access, please register in AGS!`,
+        })
+      })
+
+      //search end
+      res2.on('end', function (result) {
+        client.unbind()
+      })
+    })
+  })
+}
